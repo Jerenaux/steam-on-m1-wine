@@ -75,12 +75,15 @@ d3d11_steps=(
     scripts/08-patch-wine-visibility.sh
 )
 
-app_step=scripts/09-install-macos-app.sh
+app_steps=(
+    scripts/09-install-macos-app.sh
+    scripts/11-install-watchdog.sh
+)
 
 if [[ "$MODE" == "full" ]]; then
-    steps=("${core_steps[@]}" "${d3d11_steps[@]}" "$app_step")
+    steps=("${core_steps[@]}" "${d3d11_steps[@]}" "${app_steps[@]}")
 else
-    steps=("${core_steps[@]}" "$app_step")
+    steps=("${core_steps[@]}" "${app_steps[@]}")
 fi
 
 for step in "${steps[@]}"; do
