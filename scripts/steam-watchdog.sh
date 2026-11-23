@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Refresh a stale Wine Steam session once it is old and no game is running.
+# Recover an overwritten web helper or refresh an old, idle Wine Steam session.
 
 set -euo pipefail
 
@@ -10,6 +10,26 @@ STEAM_WATCHDOG_MAX_AGE_SECONDS=${STEAM_WATCHDOG_MAX_AGE_SECONDS:-86400}
 STEAM_GAMEPROCESS_LOG=${STEAM_GAMEPROCESS_LOG:-$WINEPREFIX/drive_c/Program Files (x86)/Steam/logs/gameprocess_log.txt}
 STEAM_EXE="$WINEPREFIX/drive_c/Program Files (x86)/Steam/Steam.exe"
 STEAM_WATCHDOG_LOCK=${STEAM_WATCHDOG_LOCK:-${TMPDIR:-/tmp}/steam-on-m1-watchdog.lock}
+
+steam_wrapper_needs_repair() {
+    local reference="$REPO_ROOT/wrapper/steamwebhelper.exe" helper
+    [[ -f "$reference" ]] || return 1
+    for helper in "$WINEPREFIX/drive_c/Program Files (x86)/Steam/bin/cef/"cef.win*/steamwebhelper.exe; do
+        [[ -f "$helper" ]] || continue
+        cmp -s "$reference" "$helper" || return 0
+    done
+    return 1
+}
+
+steam_update_in_progress() {
+    local log_file=$1
+    [[ -r "$log_file" ]] || return 1
+    awk '
+        /Installing update\.\.\./ { updating = 1 }
+        /Update complete, launching Steam|Startup - Steam Client launched/ { updating = 0 }
+        END { exit !updating }
+    ' "$log_file"
+}
 
 elapsed_to_seconds() {
     local elapsed=$1 days=0 hours=0 minutes=0 seconds=0
@@ -71,7 +91,9 @@ find_steam_process() {
     local pid elapsed command
     while read -r pid elapsed command; do
         case "$command" in
-            'C:\Program Files (x86)\Steam\Steam.exe'*)
+            'C:\Program Files (x86)\Steam\Steam.exe'*|'C:\Program Files (x86)\Steam\steam.exe'*)
+                # Wine command lines look identical across prefixes; check the mapped executable.
+                lsof -a -p "$pid" -t "$STEAM_EXE" >/dev/null 2>&1 || continue
                 printf '%s %s\n' "$pid" "$elapsed"
                 return 0
                 ;;
@@ -85,7 +107,7 @@ watchdog_log() {
 }
 
 main() {
-    local process_info steam_pid elapsed age game_state=0
+    local process_info steam_pid elapsed age game_state=0 reason
 
     if ! /usr/bin/shlock -f "$STEAM_WATCHDOG_LOCK" -p $$; then
         return 0
@@ -96,27 +118,40 @@ main() {
     [[ -n "$process_info" ]] || return 0
     read -r steam_pid elapsed <<<"$process_info"
     age=$(elapsed_to_seconds "$elapsed")
-    (( age >= STEAM_WATCHDOG_MAX_AGE_SECONDS )) || return 0
+    if steam_wrapper_needs_repair; then
+        reason="Steam update replaced the compatibility web helper"
+    elif (( age >= STEAM_WATCHDOG_MAX_AGE_SECONDS )); then
+        reason="Steam session is ${age}s old"
+    else
+        return 0
+    fi
+
+    if steam_update_in_progress "$WINEPREFIX/drive_c/Program Files (x86)/Steam/logs/bootstrap_log.txt"; then
+        watchdog_log "$reason; recovery deferred while Steam installs an update"
+        return 0
+    fi
 
     current_session_has_game "$STEAM_GAMEPROCESS_LOG" || game_state=$?
     case "$game_state" in
         0)
-            watchdog_log "Steam is ${age}s old; refresh deferred because a game is running"
+            watchdog_log "$reason; recovery deferred because a game is running"
             return 0
             ;;
         1) ;;
         *)
-            watchdog_log "Steam is ${age}s old; refresh deferred because game state is unknown"
+            watchdog_log "$reason; recovery deferred because game state is unknown"
             return 0
             ;;
     esac
 
     if [[ "${STEAM_WATCHDOG_DRY_RUN:-0}" == "1" ]]; then
-        watchdog_log "Steam is ${age}s old and idle; dry run would refresh it"
+        watchdog_log "$reason and idle; dry run would refresh it"
         return 0
     fi
 
-    watchdog_log "Steam is ${age}s old and idle; refreshing the session"
+    local launcher="${INSTALL_APP_DIR:-$HOME/Applications}/Steam on M1 Wine.app"
+    [[ -d "$launcher" ]] || { watchdog_log "Steam launcher is missing: $launcher"; return 1; }
+    watchdog_log "$reason and idle; restarting through the compatibility launcher"
     WINEPREFIX="$WINEPREFIX" WINEDEBUG=-all /usr/bin/arch -x86_64 \
         "$WINE_BIN" "$STEAM_EXE" -shutdown >/dev/null 2>&1 &
 
@@ -137,7 +172,7 @@ main() {
         return 1
     fi
 
-    /usr/bin/open -na "$WINE_APP"
+    /usr/bin/open -n "$launcher"
     watchdog_log "Steam relaunch requested"
 }
 

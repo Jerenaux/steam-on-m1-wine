@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the per-user LaunchAgent that refreshes old, idle Steam sessions.
+# Install the per-user LaunchAgent for update recovery and idle refresh.
 
 # shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
@@ -28,7 +28,7 @@ cat >"$plist" <<EOF
     <key>RunAtLoad</key>
     <true/>
     <key>StartInterval</key>
-    <integer>300</integer>
+    <integer>30</integer>
     <key>ProcessType</key>
     <string>Background</string>
     <key>StandardOutPath</key>
@@ -48,4 +48,4 @@ if [[ "${STEAM_WATCHDOG_SKIP_LOAD:-0}" != "1" ]]; then
         || die "Could not load LaunchAgent: $plist"
 fi
 
-log_ok "Installed Steam idle-refresh watchdog at $plist"
+log_ok "Installed Steam update-recovery watchdog (30-second interval) at $plist"

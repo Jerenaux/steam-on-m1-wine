@@ -63,7 +63,7 @@ die() {
 export HOMEBREW_PREFIX
 export PATH="$HOMEBREW_PREFIX/bin:$PATH"
 
-: "${WINE_APP:=/Applications/Wine Stable.app}"
+: "${WINE_APP:=$HOME/Applications/Wine Stable SteamOnM1.app}"
 : "${WINE_BIN:=$WINE_APP/Contents/Resources/wine/bin/wine}"
 : "${WINESERVER_BIN:=$WINE_APP/Contents/Resources/wine/bin/wineserver}"
 : "${WINEPREFIX:=$HOME/.wine-steam}"

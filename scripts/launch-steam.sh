@@ -4,7 +4,7 @@
 # and DLL overrides that this project has verified.
 #
 # Steps:
-#   1. Kill any lingering Steam / Wine processes from a previous session
+#   1. Stop this Steam prefix's Wine processes from a previous session
 #      (so the new one is not reduced to --silent by single-instance guard)
 #   2. Wipe Chromium's SingletonLock (left over by crashes)
 #   3. Launch Steam with DXMT-friendly DLL overrides and a set of
@@ -13,6 +13,7 @@
 # Usage:
 #   scripts/launch-steam.sh            # attach and tail Steam's log
 #   scripts/launch-steam.sh --detach   # fire-and-forget, just print paths
+#   scripts/launch-steam.sh --foreground # keep Wine attached (macOS .app)
 
 # shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
@@ -25,21 +26,13 @@ STEAM_EXE="$WINEPREFIX/drive_c/Program Files (x86)/Steam/Steam.exe"
 HTMLCACHE="$WINEPREFIX/drive_c/users/$USER/AppData/Local/Steam/htmlcache"
 LOG_FILE="${STEAM_LAUNCH_LOG:-${TMPDIR:-/tmp}/steam-on-m1-wine.log}"
 
-# -- 1. Stop lingering processes ---------------------------------------------
-log_step "Stopping any running Steam / Wine processes"
-patterns='steam\.exe|steamwebhelper|steamservice|wineserver|wine64-preloader|winedevice|explorer\.exe'
-to_kill=$(pgrep -f "$patterns" || true)
-if [[ -n "$to_kill" ]]; then
-    # shellcheck disable=SC2086 # intentional word-split: multiple PIDs
-    kill -9 $to_kill 2>/dev/null || true
-    sleep 2
-fi
-still=$(pgrep -f "$patterns" || true)
-if [[ -z "$still" ]]; then
-    log_ok "All previous processes cleared"
-else
-    log_warn "These processes survived kill: $still"
-fi
+# -- 1. Stop this prefix's processes -----------------------------------------
+log_step "Stopping this Steam Wine prefix"
+WINEPREFIX="$WINEPREFIX" "$WINESERVER_BIN" -k \
+    || die "Could not stop the Steam Wine prefix"
+WINEPREFIX="$WINEPREFIX" "$WINESERVER_BIN" -w \
+    || die "Could not wait for the Steam Wine prefix to stop"
+log_ok "Previous prefix processes cleared"
 
 # -- 2. Purge Chromium SingletonLock -----------------------------------------
 # When Steam crashes on Wine, Chromium leaves SingletonLock* and Singleton*
@@ -47,7 +40,7 @@ fi
 # falls back to --silent (no visible window).
 if [[ -d "$HTMLCACHE" ]]; then
     find "$HTMLCACHE" -maxdepth 2 \
-        \( -name "Singleton*" -o -name "*.lock" -o -name "CrashpadMetrics*.pma" \) \
+        \( -iname "Singleton*" -o -iname "*.lock" -o -iname "CrashpadMetrics*.pma" \) \
         -delete 2>/dev/null || true
     log_ok "Chromium locks purged"
 fi
@@ -182,6 +175,11 @@ fi
 export WINEPREFIX
 export WINEDEBUG
 
+# Rosetta 2 can translate AVX/AVX2 on macOS 15+, but does not expose those
+# CPUID feature bits unless explicitly requested. Games which require AVX
+# otherwise exit before their renderer starts.
+export ROSETTA_ADVERTISE_AVX=1
+
 # DLL overrides — hybrid configuration.
 #
 #   dxgi,d3d11,d3d10core=n,b
@@ -258,7 +256,13 @@ detect_display_size() {
     # macOS menu bar, which is exactly what Wine's virtual desktop
     # wants to fill.
     local bounds width height
-    bounds=$(osascript -e 'tell application "Finder" to get bounds of window of desktop' 2>/dev/null || true)
+    # Finder may be unavailable (for example while the screen is locked) or
+    # may wait indefinitely for Apple Events permission. Bound the query so a
+    # display-size convenience check can never block Steam startup.
+    bounds=$(osascript \
+        -e 'with timeout of 3 seconds' \
+        -e 'tell application "Finder" to get bounds of window of desktop' \
+        -e 'end timeout' 2>/dev/null || true)
     if [[ "$bounds" =~ ,[[:space:]]*([0-9]+),[[:space:]]*([0-9]+)$ ]]; then
         width="${BASH_REMATCH[1]}"
         height="${BASH_REMATCH[2]}"
@@ -292,6 +296,31 @@ log_info "Log file         : $LOG_FILE"
 
 cd "$WINEPREFIX/drive_c/Program Files (x86)/Steam" \
     || die "Cannot cd into Steam install directory"
+
+# Wine's AppKit event loop needs both a live app owner and a pseudo-terminal on
+# older macOS releases. Without the PTY, only the virtual desktop's explorer
+# process remains and Steam itself never starts. /usr/bin/script provides that
+# PTY without opening Terminal or displaying a console window.
+if [[ "${1:-}" == "--foreground" ]]; then
+    log_info "Launch mode      : foreground (macOS app lifecycle)"
+    if [[ -n "$WINE_VIRTUAL_DESKTOP" ]]; then
+        nohup /usr/bin/script -q /dev/null /usr/bin/arch -x86_64 "$WINE_BIN" \
+            explorer.exe "/desktop=${WINE_VIRTUAL_DESKTOP_NAME},${WINE_VIRTUAL_DESKTOP}" \
+            "C:\\Program Files (x86)\\Steam\\Steam.exe" \
+            "${STEAM_ARGS[@]}" \
+            >"$LOG_FILE" 2>&1 &
+    else
+        nohup /usr/bin/script -q /dev/null /usr/bin/arch -x86_64 "$WINE_BIN" \
+            "C:\\Program Files (x86)\\Steam\\Steam.exe" \
+            "${STEAM_ARGS[@]}" \
+            >"$LOG_FILE" 2>&1 &
+    fi
+    steam_host_pid=$!
+    log_ok "Launched Steam PTY host (pid=$steam_host_pid); waiting for app exit"
+    wait "$steam_host_pid"
+    exit $?
+fi
+
 if [[ -n "$WINE_VIRTUAL_DESKTOP" ]]; then
     nohup arch -x86_64 "$WINE_BIN" \
         explorer.exe "/desktop=${WINE_VIRTUAL_DESKTOP_NAME},${WINE_VIRTUAL_DESKTOP}" \

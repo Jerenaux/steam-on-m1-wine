@@ -69,7 +69,7 @@ HOME="$install_home" STEAM_WATCHDOG_SKIP_LOAD=1 \
 plist="$install_home/Library/LaunchAgents/com.jerome.steam-on-m1-watchdog.plist"
 [[ -f "$plist" ]]
 /usr/bin/plutil -lint "$plist" >/dev/null
-grep -Fq '<integer>300</integer>' "$plist"
+grep -Fq '<integer>30</integer>' "$plist"
 grep -Fq "$repo_root/scripts/steam-watchdog.sh" "$plist"
 
 printf 'Steam watchdog installation checks passed\n'

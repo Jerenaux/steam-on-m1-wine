@@ -4,7 +4,7 @@
 # with the v0.6 configuration (DXMT fork + virtual desktop + compat scrub).
 #
 # The .app is a thin AppleScript-free wrapper whose only job is to invoke
-# `scripts/launch-steam.sh --detach` from the same repository. Because
+# `scripts/launch-steam.sh --foreground` from the same repository. Because
 # launch-steam.sh already handles prefix detection, wrapper reinstallation,
 # compat-flag scrubbing and the virtual desktop, the .app itself stays a
 # few KB and has no runtime state of its own.
@@ -84,7 +84,7 @@ LOG_FILE="/tmp/steam-on-m1-wine-launcher.log"
 
 {
     printf '\n== %s boot via %s.app ==\n' "\$(date '+%F %T')" "Steam on M1 Wine"
-    exec "\$REPO_ROOT/scripts/launch-steam.sh" --detach
+    exec "\$REPO_ROOT/scripts/launch-steam.sh" --foreground
 } >>"\$LOG_FILE" 2>&1
 LAUNCHER
 chmod +x "$APP_PATH/Contents/MacOS/launcher"

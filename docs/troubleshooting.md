@@ -154,17 +154,34 @@ CEF's ANGLE back-end produces a black surface. Note: passing
 
 ## Dock shows a Steam icon but no window appears
 
-**Cause.** `-silent` mode. Triggered when a stale Chromium
-`SingletonLock` file remains after a previous crash.
+**Causes.** A stale Chromium lock can trigger `-silent` mode. A Steam client
+update can also replace the compatibility web helper after the launcher has
+checked it, leaving the new interface unable to render under Wine.
 
 **Fix.**
-- `scripts/launch-steam.sh` deletes these locks at the start of every
-  launch. If you invoked Steam some other way, kill everything and run
-  `launch-steam.sh` again:
+- The launcher clears stale locks and restores the web helper on each launch.
+  The installed watchdog checks every 30 seconds for an overwritten helper
+  and reopens **Steam on M1 Wine** to repair it. It waits while an update is
+  installing, a game is running, or the game state cannot be established.
+- For immediate recovery, reopen **Steam on M1 Wine**, or run:
   ```bash
-  pkill -9 -f 'steam\.exe|steamwebhelper|wineserver'
-  scripts/launch-steam.sh
+  scripts/launch-steam.sh --foreground
   ```
+- Install or update the automatic recovery agent with
+  `bash scripts/11-install-watchdog.sh`.
+
+### Native Mac Steam versus Wine Steam
+
+The native client uses `~/Library/Application Support/Steam`; this Windows
+client uses `~/.wine-steam/drive_c/Program Files (x86)/Steam`. They have
+different macOS app identifiers and separate client files. The launcher stops
+only the selected Wine prefix, without stopping native Steam or other Wine
+prefixes. A game in that same prefix must be closed before manually relaunching.
+
+The native Steam app registers macOS's `steam://` links. Opening one from a Mac
+browser can therefore open native Steam; to launch a Windows game, select it
+inside the Windows client's library. The helper replacement problem happens
+entirely inside the Windows installation, independently of native Steam.
 
 ## `wine` immediately exits with status 137
 
