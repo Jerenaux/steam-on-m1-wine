@@ -29,7 +29,10 @@ LOG_FILE="${STEAM_LAUNCH_LOG:-${TMPDIR:-/tmp}/steam-on-m1-wine.log}"
 # -- 1. Stop this prefix's processes -----------------------------------------
 log_step "Stopping this Steam Wine prefix"
 WINEPREFIX="$WINEPREFIX" "$WINESERVER_BIN" -k \
-    || die "Could not stop the Steam Wine prefix"
+    || {
+        # wineserver returns 1 when no server exists, including after a reboot.
+        [[ $? == 1 ]] || die "Could not stop the Steam Wine prefix"
+    }
 WINEPREFIX="$WINEPREFIX" "$WINESERVER_BIN" -w \
     || die "Could not wait for the Steam Wine prefix to stop"
 log_ok "Previous prefix processes cleared"
