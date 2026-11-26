@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Recover an overwritten web helper or refresh an old, idle Wine Steam session.
+# Recover a missing/overwritten web helper or refresh an old, idle Wine session.
 
 set -euo pipefail
 
@@ -17,6 +17,15 @@ steam_wrapper_needs_repair() {
     for helper in "$WINEPREFIX/drive_c/Program Files (x86)/Steam/bin/cef/"cef.win*/steamwebhelper.exe; do
         [[ -f "$helper" ]] || continue
         cmp -s "$reference" "$helper" || return 0
+    done
+    return 1
+}
+
+steam_webhelper_running() {
+    local helper
+    for helper in "$WINEPREFIX/drive_c/Program Files (x86)/Steam/bin/cef/"cef.win*/steamwebhelper_real.exe; do
+        [[ -f "$helper" ]] || continue
+        lsof -t "$helper" >/dev/null 2>&1 && return 0
     done
     return 1
 }
@@ -122,6 +131,9 @@ main() {
         reason="Steam update replaced the compatibility web helper"
     elif (( age >= STEAM_WATCHDOG_MAX_AGE_SECONDS )); then
         reason="Steam session is ${age}s old"
+    # Allow startup to finish before checking for a missing interface process.
+    elif (( age >= 120 )) && ! steam_webhelper_running; then
+        reason="Steam interface process is not running"
     else
         return 0
     fi
